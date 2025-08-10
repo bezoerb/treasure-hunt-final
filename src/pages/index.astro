@@ -1,16 +1,179 @@
 ---
-
+const title = "Schatzsuche";
+const subtitle = "Lösungswort eingeben";
+import "../styles/global.css";
 ---
 
 <html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>{title}</title>
+    <meta
+      name="description"
+      content="A playful landing page for a birthday scavenger hunt."
+    />
+  </head>
+  <body>
+    <!-- SVG Filter for glowing border effect -->
+    <svg width="0" height="0" style="position: absolute;">
+      <defs>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <!-- Create saturated, colorful glow effect -->
+          <feGaussianBlur stdDeviation="2" result="coloredBlur"
+          ></feGaussianBlur>
+
+          <!-- Enhance color saturation and vibrancy -->
+          <feColorMatrix
+            in="coloredBlur"
+            type="saturate"
+            values="3"
+            result="saturatedGlow"></feColorMatrix>
+
+          <!-- Boost specific color channels for more vivid colors -->
+          <feColorMatrix
+            in="saturatedGlow"
+            type="matrix"
+            values="4 0 0 0 0
+                                0 4 0 0 0  
+                                0 0 4 0 0
+                                0 0 0 1 0"
+            result="vibrantGlow"></feColorMatrix>
+
+          <!-- Add a sharper inner layer for crisp edges -->
+          <feGaussianBlur
+            in="SourceGraphic"
+            stdDeviation="0.5"
+            result="sharpInner"></feGaussianBlur>
+          <feColorMatrix
+            in="sharpInner"
+            type="saturate"
+            values="4"
+            result="superSaturatedInner"></feColorMatrix>
+          <feColorMatrix
+            in="superSaturatedInner"
+            type="matrix"
+            values="6 0 0 0 0
+                                0 6 0 0 0  
+                                0 0 6 0 0
+                                0 0 0 1 0"
+            result="intenseSaturatedInner"></feColorMatrix>
+
+          <!-- Merge for maximum color saturation -->
+          <feMerge>
+            <feMergeNode in="vibrantGlow"></feMergeNode>
+            <feMergeNode in="intenseSaturatedInner"></feMergeNode>
+            <feMergeNode in="SourceGraphic"></feMergeNode>
+          </feMerge>
+        </filter>
+      </defs>
+    </svg>
+
+    <!-- Animated color blobs background - moved to root level -->
+    <div class="pointer-events-none fixed inset-0 z-5">
+      <div
+        class="absolute -top-24 -left-24 h-32 w-32 sm:h-40 sm:w-40 md:h-56 md:w-56 rounded-full bg-fuchsia-300/70 blur-xl animate-blob"
+        style="--dx: 18rem; --dy: 12rem; --move-dur: 13s; --hue-dur: 9s; --opacity-dur: 8s; --move-delay: -0.5s; --hue-delay: -0.3s; --opacity-delay: -0.6s; --hue-start: 0deg; --scale-up: 1.08; --scale-down: 0.96"
+      >
+      </div>
+      <div
+        class="absolute top-1/2 -translate-y-1/2 -right-24 h-36 w-36 sm:h-48 sm:w-48 md:h-64 md:w-64 rounded-full bg-sky-300/70 blur-xl animate-blob"
+        style="--dx: 22rem; --dy: 14rem; --move-dur: 16s; --hue-dur: 10s; --opacity-dur: 6s; --move-delay: -1.2s; --hue-delay: -0.8s; --opacity-delay: -0.2s; --hue-start: 120deg; --scale-up: 1.05; --scale-down: 0.98"
+      >
+      </div>
+      <div
+        class="absolute bottom-0 left-1/3 h-28 w-28 sm:h-36 sm:w-36 md:h-48 md:w-48 rounded-full bg-amber-300/70 blur-xl animate-blob"
+        style="--dx: 16rem; --dy: 10rem; --move-dur: 14s; --hue-dur: 7s; --opacity-dur: 9s; --move-delay: -2.2s; --hue-delay: -1.1s; --opacity-delay: -0.4s; --hue-start: 240deg; --scale-up: 1.1; --scale-down: 0.95"
+      >
+      </div>
+      <div
+        class="absolute top-20 left-1/4 h-28 w-28 sm:h-36 sm:w-36 md:h-48 md:w-48 rounded-full bg-emerald-300/70 blur-xl animate-blob"
+        style="--dx: 14rem; --dy: 12rem; --move-dur: 11s; --hue-dur: 12s; --opacity-dur: 10s; --move-delay: -0.9s; --hue-delay: -0.1s; --opacity-delay: -1.4s; --hue-start: 45deg; --scale-up: 1.06; --scale-down: 0.97"
+      >
+      </div>
+      <div
+        class="absolute top-0 right-0 translate-x-1/3 -translate-y-1/3 h-32 w-32 sm:h-40 sm:w-40 md:h-56 md:w-56 rounded-full bg-indigo-300/70 blur-xl animate-blob"
+        style="--dx: 12rem; --dy: 18rem; --move-dur: 18s; --hue-dur: 11s; --opacity-dur: 8.5s; --move-delay: -1.8s; --hue-delay: -0.5s; --opacity-delay: -0.9s; --hue-start: 300deg; --scale-up: 1.04; --scale-down: 0.99"
+      >
+      </div>
+    </div>
+
+    <main
+      id="main"
+      class="min-h-screen relative overflow-hidden flex items-center justify-center p-6"
+    >
+      <section aria-labelledby="title" class="w-full max-w-xl">
+        <div
+          id="panel"
+          class="glow-border relative z-10 rounded-2xl p-8 sm:p-10 bg-white/40 dark:bg-white/40 backdrop-blur-sm shadow-[0_0_20px_rgba(0,0,0,0.15)] ring-1 ring-white/15"
+        >
+          <header class="text-center space-y-2">
+            <h1
+              id="title"
+              class="text-3xl sm:text-4xl font-bold tracking-tight text-gray-800"
+            >
+              {title}
+            </h1>
+            <p class="text-gray-600">{subtitle}</p>
+          </header>
+
+          <form id="secret-form" novalidate class="mt-6 grid gap-4">
+            <input
+              id="secret-input"
+              name="secret"
+              type="text"
+              inputmode="text"
+              autocomplete="off"
+              required
+              class="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:ring-4 focus:ring-primary-500/30 focus:border-primary-500"
+              placeholder="Lösungswort"
+              aria-describedby="secret-help"
+            />
+            <button
+              id="submit-btn"
+              type="submit"
+              aria-label="Submit secret"
+              class="inline-flex justify-center items-center rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-semibold px-5 py-3 shadow-lg shadow-orange-500/30 transition"
+            >
+              Auflösen
+            </button>
+            <div id="secret-help" class="text-sm text-gray-500 text-center">
+              Groß-/Kleinschreibung egal.
+            </div>
+            <div
+              id="feedback"
+              class="min-h-6 text-center text-xs"
+              role="status"
+              aria-live="polite"
+            >
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Fullscreen map overlay lives outside the panel so hiding the panel won't hide the map -->
+      <div
+        id="map-wrap"
+        class="fixed inset-0 z-50 p-4 md:p-8 bg-white/80 backdrop-blur-xl flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-500"
+        aria-hidden="true"
+      >
+        <img
+          id="map"
+          class="max-w-[95vw] max-h-[90vh] w-auto h-auto rounded-xl border border-gray-200 shadow-2xl"
+          src="/treasure-map.webp"
+          alt="The hidden treasure map"
+        />
+      </div>
+    </main>
+
+    <script type="module">
+      // Import confetti library and make it globally available
+      import confetti from 'https://cdn.skypack.dev/canvas-confetti';
+      window.confetti = confetti;
+    </script>
+    <script src="../scripts/treasure.ts"></script>
+  </body>
 </html>
