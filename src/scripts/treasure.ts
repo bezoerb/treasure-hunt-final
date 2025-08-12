@@ -13,8 +13,12 @@ const SECRET_SHA256_HEX: string = ""; // e.g., "9b74c9897bac770ffc029102a200c5de
 
 // UI elements
 const form = document.getElementById("secret-form") as HTMLFormElement | null;
-const inputsContainer = document.getElementById("secret-inputs") as HTMLElement | null;
-const inputs = inputsContainer?.querySelectorAll('.char-input') as NodeListOf<HTMLInputElement> | null;
+const inputsContainer = document.getElementById(
+  "secret-inputs"
+) as HTMLElement | null;
+const inputs = inputsContainer?.querySelectorAll(
+  ".char-input"
+) as NodeListOf<HTMLInputElement> | null;
 const submitBtn = document.getElementById(
   "submit-btn"
 ) as HTMLButtonElement | null;
@@ -44,7 +48,7 @@ const STORAGE_KEY = "scavenger-solved";
 
 // Setup auto-focus behavior for character inputs
 inputs.forEach((input, index) => {
-  input.addEventListener('input', (e) => {
+  input.addEventListener("input", (e) => {
     const value = (e.target as HTMLInputElement).value;
     if (value && index < inputs.length - 1) {
       inputs[index + 1].focus();
@@ -55,29 +59,31 @@ inputs.forEach((input, index) => {
     }
   });
 
-  input.addEventListener('keydown', (e) => {
+  input.addEventListener("keydown", (e) => {
     const currentInput = e.target as HTMLInputElement;
-    if (e.key === 'Backspace' && !currentInput.value && index > 0) {
+    if (e.key === "Backspace" && !currentInput.value && index > 0) {
       inputs[index - 1].focus();
     }
     // Allow submission with Enter key from any input
-    if (e.key === 'Enter') {
-      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    if (e.key === "Enter") {
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
     }
   });
 
   // Handle paste events
-  input.addEventListener('paste', (e) => {
+  input.addEventListener("paste", (e) => {
     e.preventDefault();
-    const pastedText = e.clipboardData?.getData('text') || '';
+    const pastedText = e.clipboardData?.getData("text") || "";
     const chars = pastedText.toLowerCase().slice(0, inputs.length - index);
-    
-    chars.split('').forEach((char, charIndex) => {
+
+    chars.split("").forEach((char, charIndex) => {
       if (index + charIndex < inputs.length) {
         inputs[index + charIndex].value = char;
       }
     });
-    
+
     // Focus the next empty input or the last one
     const nextEmptyIndex = Math.min(index + chars.length, inputs.length - 1);
     inputs[nextEmptyIndex].focus();
@@ -86,7 +92,11 @@ inputs.forEach((input, index) => {
 
 form.addEventListener("submit", async (e: SubmitEvent) => {
   e.preventDefault();
-  const guess: string = Array.from(inputs).map(input => input.value).join('').trim().toLowerCase();
+  const guess: string = Array.from(inputs)
+    .map((input) => input.value)
+    .join("")
+    .trim()
+    .toLowerCase();
   if (!guess || guess.length !== inputs.length) {
     giveFeedback("Bitte alle Felder ausfüllen!", false);
     bumpInputs();
@@ -107,7 +117,11 @@ form.addEventListener("submit", async (e: SubmitEvent) => {
         true
       );
       revealMap();
-      localStorage.setItem(STORAGE_KEY, "yes");
+
+      // Remove the query param to avoid repeated attempts on refresh
+      const url = new URL(window.location.href);
+      url.searchParams.set("secret", guess);
+      history.pushState(null, "", url.toString());
       fireConfetti();
     } else {
       giveFeedback("Not quite. Try again!", false);
@@ -128,22 +142,19 @@ form.addEventListener("submit", async (e: SubmitEvent) => {
     const url = new URL(window.location.href);
     const qsSecret = url.searchParams.get("secret");
     if (!qsSecret) return;
-    
+
     // Fill the character inputs with the secret
     const chars = qsSecret.toLowerCase().slice(0, inputs.length);
-    chars.split('').forEach((char, index) => {
+    chars.split("").forEach((char, index) => {
       if (index < inputs.length) {
         inputs[index].value = char;
       }
     });
-    
+
     // Trigger the same submit flow without navigating
     form!.dispatchEvent(
       new Event("submit", { bubbles: true, cancelable: true })
     );
-    // Remove the query param to avoid repeated attempts on refresh
-    url.searchParams.delete("secret");
-    history.replaceState(null, "", url.toString());
   } catch {
     // ignore
   }
@@ -190,7 +201,7 @@ function revealMap(initial: boolean = false): void {
 
 function bumpInputs(): void {
   if (!inputs) return;
-  inputs.forEach(input => {
+  inputs.forEach((input) => {
     input.classList.remove("shake");
     // Force reflow
     void input.offsetWidth;
@@ -226,18 +237,18 @@ declare global {
 
 function fireConfetti() {
   // Check if confetti library is loaded
-  if (typeof window.confetti === 'undefined') {
-    console.warn('Confetti library not loaded yet, skipping confetti');
+  if (typeof window.confetti === "undefined") {
+    console.warn("Confetti library not loaded yet, skipping confetti");
     return;
   }
 
   // Create multiple confetti cannons like in the CodePen
   const cannons = [
-    { x: 0.1, y: 0.8, angle: 45 },      // Bottom left
-    { x: 0.9, y: 0.8, angle: 135 },     // Bottom right
-    { x: 0.3, y: 0.9, angle: 75 },      // Bottom left-center
-    { x: 0.7, y: 0.9, angle: 105 },     // Bottom right-center
-    { x: 0.5, y: 0.95, angle: 90 }      // Bottom center
+    { x: 0.1, y: 0.8, angle: 45 }, // Bottom left
+    { x: 0.9, y: 0.8, angle: 135 }, // Bottom right
+    { x: 0.3, y: 0.9, angle: 75 }, // Bottom left-center
+    { x: 0.7, y: 0.9, angle: 105 }, // Bottom right-center
+    { x: 0.5, y: 0.95, angle: 90 }, // Bottom center
   ];
 
   cannons.forEach((cannon, index) => {
@@ -247,17 +258,17 @@ function fireConfetti() {
         angle: cannon.angle,
         spread: 55,
         origin: { x: cannon.x, y: cannon.y },
-        colors: ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#feca57', '#ff9ff3', '#54a0ff', '#5f27cd']
+        colors: [
+          "#ff6b6b",
+          "#4ecdc4",
+          "#45b7d1",
+          "#96ceb4",
+          "#feca57",
+          "#ff9ff3",
+          "#54a0ff",
+          "#5f27cd",
+        ],
       });
     }, index * 100);
   });
 }
-
-// Initialize on page load - check if already solved
-(function initializePage() {
-  if (localStorage.getItem(STORAGE_KEY) === "yes") {
-    // Map was already revealed, show it immediately
-    giveFeedback("Welcome back! The map is ready for your adventure.", true);
-    revealMap(true);
-  }
-})();
