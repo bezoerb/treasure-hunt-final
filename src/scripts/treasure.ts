@@ -13,9 +13,8 @@ const SECRET_SHA256_HEX: string = ""; // e.g., "9b74c9897bac770ffc029102a200c5de
 
 // UI elements
 const form = document.getElementById("secret-form") as HTMLFormElement | null;
-const input = document.getElementById(
-  "secret-input"
-) as HTMLInputElement | null;
+const inputsContainer = document.getElementById("secret-inputs") as HTMLElement | null;
+const inputs = inputsContainer?.querySelectorAll('.char-input') as NodeListOf<HTMLInputElement> | null;
 const submitBtn = document.getElementById(
   "submit-btn"
 ) as HTMLButtonElement | null;
@@ -26,7 +25,9 @@ const mapImg = document.getElementById("map") as HTMLImageElement | null;
 
 if (
   !form ||
-  !input ||
+  !inputsContainer ||
+  !inputs ||
+  inputs.length === 0 ||
   !submitBtn ||
   !feedback ||
   !mapWrap ||
@@ -41,13 +42,55 @@ if (
 // Persist success across refresh
 const STORAGE_KEY = "scavenger-solved";
 
+// Setup auto-focus behavior for character inputs
+inputs.forEach((input, index) => {
+  input.addEventListener('input', (e) => {
+    const value = (e.target as HTMLInputElement).value;
+    if (value && index < inputs.length - 1) {
+      inputs[index + 1].focus();
+    }
+    // Convert to lowercase as user types
+    if (value) {
+      (e.target as HTMLInputElement).value = value.toLowerCase();
+    }
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const currentInput = e.target as HTMLInputElement;
+    if (e.key === 'Backspace' && !currentInput.value && index > 0) {
+      inputs[index - 1].focus();
+    }
+    // Allow submission with Enter key from any input
+    if (e.key === 'Enter') {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    }
+  });
+
+  // Handle paste events
+  input.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const pastedText = e.clipboardData?.getData('text') || '';
+    const chars = pastedText.toLowerCase().slice(0, inputs.length - index);
+    
+    chars.split('').forEach((char, charIndex) => {
+      if (index + charIndex < inputs.length) {
+        inputs[index + charIndex].value = char;
+      }
+    });
+    
+    // Focus the next empty input or the last one
+    const nextEmptyIndex = Math.min(index + chars.length, inputs.length - 1);
+    inputs[nextEmptyIndex].focus();
+  });
+});
+
 form.addEventListener("submit", async (e: SubmitEvent) => {
   e.preventDefault();
-  const guess: string = (input!.value || "").trim().toLowerCase();
-  if (!guess) {
-    giveFeedback("Das war leider nix :)", false);
-    bump(input!);
-    input!.focus();
+  const guess: string = Array.from(inputs).map(input => input.value).join('').trim().toLowerCase();
+  if (!guess || guess.length !== inputs.length) {
+    giveFeedback("Bitte alle Felder ausfüllen!", false);
+    bumpInputs();
+    inputs[0].focus();
     return;
   }
 
@@ -68,7 +111,7 @@ form.addEventListener("submit", async (e: SubmitEvent) => {
       fireConfetti();
     } else {
       giveFeedback("Not quite. Try again!", false);
-      bump(input!);
+      bumpInputs();
     }
   } catch (err) {
     console.error(err);
@@ -85,7 +128,15 @@ form.addEventListener("submit", async (e: SubmitEvent) => {
     const url = new URL(window.location.href);
     const qsSecret = url.searchParams.get("secret");
     if (!qsSecret) return;
-    input!.value = qsSecret;
+    
+    // Fill the character inputs with the secret
+    const chars = qsSecret.toLowerCase().slice(0, inputs.length);
+    chars.split('').forEach((char, index) => {
+      if (index < inputs.length) {
+        inputs[index].value = char;
+      }
+    });
+    
     // Trigger the same submit flow without navigating
     form!.dispatchEvent(
       new Event("submit", { bubbles: true, cancelable: true })
@@ -137,11 +188,14 @@ function revealMap(initial: boolean = false): void {
   });
 }
 
-function bump(el: HTMLElement): void {
-  el.classList.remove("shake");
-  // Force reflow
-  void el.offsetWidth;
-  el.classList.add("shake");
+function bumpInputs(): void {
+  if (!inputs) return;
+  inputs.forEach(input => {
+    input.classList.remove("shake");
+    // Force reflow
+    void input.offsetWidth;
+    input.classList.add("shake");
+  });
 }
 
 function setLoading(isLoading: boolean): void {
