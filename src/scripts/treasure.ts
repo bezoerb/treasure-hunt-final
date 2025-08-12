@@ -162,7 +162,7 @@ form.addEventListener("submit", async (e: SubmitEvent) => {
 
 function giveFeedback(msg: string, ok: boolean): void {
   feedback!.textContent = msg;
-  feedback!.className = "feedback text-center text-sm " + (ok ? "ok" : "err");
+  feedback!.className = feedback!.className + " feedback text-center text-sm " + (ok ? "ok" : "err");
 }
 
 function revealMap(initial: boolean = false): void {
