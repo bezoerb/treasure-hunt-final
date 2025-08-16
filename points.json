@@ -1,0 +1,257 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.475025,
+          53.60022777777778
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0969.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.475047222222223,
+          53.60062777777778
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0970.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.475725,
+          53.600855555555555
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0971.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.476169444444444,
+          53.600975
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0972.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.476269444444444,
+          53.59975555555556
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0973.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.476436111111111,
+          53.59965833333334
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0974.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.476594444444444,
+          53.5992
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0975.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.478111111111112,
+          53.59986388888889
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0976.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.478033333333334,
+          53.60012777777778
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0977.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.477622222222223,
+          53.60049444444444
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0978.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.477213888888889,
+          53.600630555555554
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0979.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.475677777777777,
+          53.60181111111111
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0981.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.475802777777778,
+          53.602386111111116
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0982.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.476091666666667,
+          53.60331666666667
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0984.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.47488888888889,
+          53.601680555555554
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0989.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.475950000000001,
+          53.60098333333333
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0990.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.474672222222223,
+          53.59988888888889
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0991.jpeg",
+        "altitude": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.475075,
+          53.599725
+        ]
+      },
+      "properties": {
+        "file": "/Users/benjamin.zoerb/Documents/Schatzsuche/IMG_0992.jpeg",
+        "altitude": null
+      }
+    }
+  ]
+}

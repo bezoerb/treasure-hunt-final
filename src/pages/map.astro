@@ -1,0 +1,322 @@
+---
+import "../styles/global.css";
+import pointsRaw from "../../data/points.geojson?raw";
+import borderRaw from "../../data/border.geojson?raw";
+
+const points = JSON.parse(pointsRaw);
+const border = JSON.parse(borderRaw);
+
+const title = "Karte";
+const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>{title}</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.css" rel="stylesheet">
+    <script defer src="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.js"></script>
+  </head>
+  <body class="min-h-screen">
+    <main class="min-h-screen">
+      <div id="map" data-token={MAPBOX_TOKEN} class="w-full h-[100dvh]"></div>
+    </main>
+
+    <script id="geojson-data" type="application/json" set:html={JSON.stringify(points)}></script>
+    <script id="border-data" type="application/json" set:html={JSON.stringify(border)}></script>
+    <script type="module">
+      import * as turf from 'https://cdn.skypack.dev/@turf/turf';
+      function init() {
+        const container = document.getElementById('map');
+        const token = container?.dataset?.token || '';
+        if (!token) {
+          console.error('PUBLIC_MAPBOX_TOKEN is missing. Set it in your environment.');
+          return;
+        }
+
+        const jsonEl = document.getElementById('geojson-data');
+        const borderEl = document.getElementById('border-data');
+        if (!jsonEl || !borderEl) return;
+        const geojson = JSON.parse(jsonEl.textContent || '{}');
+        const borderJson = JSON.parse(borderEl.textContent || '{}');
+
+        // @ts-ignore - mapboxgl is provided globally by the CDN script
+        if (!window.mapboxgl) {
+          console.error('Mapbox GL JS failed to load');
+          return;
+        }
+
+        // @ts-ignore
+        mapboxgl.accessToken = token;
+        // @ts-ignore
+        const map = new mapboxgl.Map({
+          container: 'map',
+          style: 'mapbox://styles/mapbox/streets-v12',
+          center: [10.0, 51.0],
+          zoom: 4
+        });
+
+        // @ts-ignore
+        map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+        map.on('load', () => {
+          map.addSource('points', {
+            type: 'geojson',
+            data: geojson
+          });
+
+          // Border/mask source (for visualization and clipping)
+          map.addSource('border', {
+            type: 'geojson',
+            data: borderJson
+          });
+
+          // Clip layer approach didn't work reliably, switching back to turf.mask for guaranteed clipping
+
+          // No precise point markers — keep the locations hidden
+
+          // Add a unioned buffer polygon layer that starts vague and refines over two hours
+          map.addSource('hint', {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: []
+            }
+          });
+
+          map.addLayer({
+            id: 'hint-fill',
+            type: 'fill',
+            source: 'hint',
+            paint: {
+              'fill-color': '#ff5500',
+              'fill-opacity': 0.4
+            }
+          });
+          map.addLayer({
+            id: 'hint-outline',
+            type: 'line',
+            source: 'hint',
+            paint: {
+              'line-color': '#ff5500',
+              'line-width': 2,
+              'line-opacity': 0.7
+            }
+          });
+
+          // Draw border for context
+          map.addLayer({
+            id: 'border-outline',
+            type: 'line',
+            source: 'border',
+            paint: {
+              'line-color': '#4b5563',
+              'line-width': 2,
+              'line-opacity': 0.6
+            }
+          });
+
+          // Time-based: from a persistent start timestamp
+          const STORAGE_KEY = 'treasure-hunt:startTs';
+          // Default duration (2h). Override via URL: ?dur=60000 or ?dur=1m or 30s. Reset via ?reset=1
+          function parseDuration(input) {
+            if (!input) return null;
+            const n = Number(input);
+            if (!Number.isNaN(n)) return n; // milliseconds
+            const m = String(input).trim().match(/^(\d+)(ms|s|m|h)$/i);
+            if (!m) return null;
+            const value = Number(m[1]);
+            const unit = m[2].toLowerCase();
+            switch (unit) {
+              case 'ms': return value;
+              case 's': return value * 1000;
+              case 'm': return value * 60 * 1000;
+              case 'h': return value * 60 * 60 * 1000;
+              default: return null;
+            }
+          }
+          const url = new URL(window.location.href);
+          if (url.searchParams.get('reset') === '1') {
+            localStorage.removeItem(STORAGE_KEY);
+          }
+          const override = parseDuration(url.searchParams.get('dur'));
+          const REVEAL_DURATION_MS = override ?? (2 * 60 * 60 * 1000);
+          const MAX_RADIUS_METERS = 300; // start (~600 m)
+          const MIN_RADIUS_METERS = 10;  // end (~60 m)
+
+          let startTs = Number(localStorage.getItem(STORAGE_KEY) || 0);
+          if (!startTs) {
+            startTs = Date.now();
+            localStorage.setItem(STORAGE_KEY, String(startTs));
+          }
+
+          function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+          function currentRadiusMeters(nowTs) {
+            const elapsed = nowTs - startTs;
+            const progress = clamp(elapsed / REVEAL_DURATION_MS, 0, 1);
+            // Ease-out to reveal slower at first, faster later
+            const eased = 1 - Math.pow(1 - progress, 2);
+            const radius = MAX_RADIUS_METERS - (MAX_RADIUS_METERS - MIN_RADIUS_METERS) * eased;
+            return Math.max(radius, 0);
+          }
+
+          function buildBuffers(radiusMeters) {
+            if (!geojson?.features?.length || radiusMeters <= 0) {
+              return { type: 'FeatureCollection', features: [] };
+            }
+            const km = radiusMeters / 1000;
+            const polygons = [];
+            for (const f of geojson.features) {
+              if (f?.geometry?.type === 'Point') {
+                const buf = turf.buffer(f, km, { units: 'kilometers' });
+                if (!buf) continue;
+                const geomType = buf.geometry?.type;
+                if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
+                  polygons.push(buf);
+                }
+              }
+            }
+            return turf.featureCollection(polygons);
+          }
+
+          function safeUnion(a, b) {
+            try { return turf.union(a, b); } catch (_e) {}
+            try { return turf.union(b, a); } catch (_e2) {}
+            try { return turf.union(normalizePolygon(a), normalizePolygon(b)); } catch (_e3) {}
+            try { return turf.union(turf.buffer(a, 0.5, { units: 'meters' }), b); } catch (_e4) {}
+            try { return turf.union(a, turf.buffer(b, 0.5, { units: 'meters' })); } catch (_e5) {}
+            return null;
+          }
+
+          function dissolveCollection(fc) {
+            if (!fc?.features?.length) return { type: 'FeatureCollection', features: [] };
+            // First try turf.dissolve directly
+            try {
+              const dissolved = turf.dissolve(fc);
+              if (dissolved?.features?.length) return dissolved;
+            } catch (_ignored) {}
+
+            // Fallback: iterative union merge
+            const pool = fc.features.map(f => normalizePolygon(f));
+            const result = [];
+            while (pool.length) {
+              let current = pool.pop();
+              let mergedThisRound = false;
+              for (let i = 0; i < result.length; i++) {
+                const u = safeUnion(result[i], current);
+                if (u) {
+                  result[i] = normalizePolygon(u);
+                  mergedThisRound = true;
+                  break;
+                }
+              }
+              if (!mergedThisRound) result.push(current);
+            }
+            return { type: 'FeatureCollection', features: result };
+          }
+
+          // Get border feature for clipping
+          function getBorderFeature() {
+            if (!borderJson?.features?.length) return null;
+            // Find the first polygon/multipolygon
+            const borderFeature = borderJson.features.find(f => {
+              const t = f?.geometry?.type;
+              return t === 'Polygon' || t === 'MultiPolygon';
+            });
+            return borderFeature || null;
+          }
+
+          const borderFeature = getBorderFeature();
+
+          function normalizePolygon(feature) {
+            try {
+              const fixed = turf.buffer(feature, 0, { units: 'meters' });
+              return fixed || feature;
+            } catch (_e) {
+              return feature;
+            }
+          }
+
+          function safeIntersect(a, b) {
+            try { return turf.intersect(a, b); } catch (_e) {}
+            try { return turf.intersect(b, a); } catch (_e2) {}
+            try { return turf.intersect(turf.buffer(a, 0.5, { units: 'meters' }), b); } catch (_e3) {}
+            try { return turf.intersect(a, turf.buffer(b, 0.5, { units: 'meters' })); } catch (_e4) {}
+            return null;
+          }
+
+          function clipToBorder(buffersFc) {
+            if (!borderFeature || !buffersFc?.features?.length) return buffersFc;
+            try {
+              const borderFixed = normalizePolygon(borderFeature);
+              const clippedPieces = [];
+              for (const piece of buffersFc.features) {
+                const pieceFixed = normalizePolygon(piece);
+                const inter = safeIntersect(borderFixed, pieceFixed);
+                if (inter) {
+                  if (inter.type === 'FeatureCollection') {
+                    clippedPieces.push(...inter.features);
+                  } else {
+                    clippedPieces.push(inter);
+                  }
+                }
+              }
+              return { type: 'FeatureCollection', features: clippedPieces };
+            } catch (e) {
+              console.warn('Clipping failed:', e);
+              return buffersFc;
+            }
+          }
+
+          function updateHintFrame() {
+            const now = Date.now();
+            const r = currentRadiusMeters(now);
+            // Build buffers only; skip clipping for debugging
+            const pieces = buildBuffers(r);
+            // Union overlapping circles so they morph into polygons, but keep
+            // multi-part results if unions fail for some pairs
+            const data = dissolveCollection(pieces);
+            const src = map.getSource('hint');
+            if (src) src.setData(data);
+            if (now - startTs < REVEAL_DURATION_MS) {
+              requestAnimationFrame(updateHintFrame);
+            }
+          }
+
+          // Kick off animation loop (smoother than setInterval and keeps in sync with tab focus)
+          updateHintFrame();
+
+          try {
+            // Fit to data bounds if any features exist
+            // @ts-ignore
+            const bounds = new mapboxgl.LngLatBounds();
+            if (geojson?.features?.length) {
+              for (const feature of geojson.features) {
+                if (feature?.geometry?.type === 'Point' && Array.isArray(feature.geometry.coordinates)) {
+                  bounds.extend(feature.geometry.coordinates);
+                }
+              }
+              if (!bounds.isEmpty()) {
+                map.fitBounds(bounds, { padding: 40, duration: 800 });
+              }
+            }
+          } catch (e) {
+            console.warn('Could not fit bounds:', e);
+          }
+        });
+      }
+
+      if (document.readyState === 'complete') {
+        init();
+      } else {
+        window.addEventListener('load', init);
+      }
+    </script>
+  </body>
+</html>
+
