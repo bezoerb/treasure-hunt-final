@@ -20,10 +20,14 @@ const CONFIG = {
   STREET_BASE_MULT: 0.02,
   STREET_PROGRESS_MULT: 0.6,
   // Minimum street width (meters). Streets stop shrinking once they reach this.
-  STREET_MIN_WIDTH_METERS:  3,
-  LENGTH_FADE_START: 0.6,
-  LENGTH_FADE_END: 1.0,
-  LENGTH_INFLUENCE_METERS: 400
+  STREET_MIN_WIDTH_METERS:  7,
+  LENGTH_FADE_START: 0.2,
+  LENGTH_FADE_END: 1,
+  LENGTH_INFLUENCE_METERS: 500,
+  // Duration of the final fade/taper (fraction of total reveal time)
+  LATE_TAPER: 0.06,
+  // Reveal points only near the end (fraction of total progress)
+  POINT_REVEAL_START: 0.94
 };
 ---
 
@@ -134,7 +138,7 @@ const CONFIG = {
             paint: {
               'line-color': '#4b5563',
               'line-width': 2,
-              'line-opacity': 0.6
+              'line-opacity': 0
             }
           });
 
@@ -213,10 +217,20 @@ const CONFIG = {
             let streetKm = km * ((CFG.STREET_BASE_MULT ?? 0.9) + (CFG.STREET_PROGRESS_MULT ?? 0.6) * (1 - progress)) * streetWeight;
             // Enforce a minimum street width so it stops shrinking visually
             const minStreetKm = (CFG.STREET_MIN_WIDTH_METERS ?? (2 * MIN_RADIUS_METERS)) / 1000;
-            streetKm = Math.max(streetKm, minStreetKm);
-            // Length collapse by slicing each LineString toward nearest points
+            // Smoothly taper to zero near the end to avoid a pop
             const LFS = CFG.LENGTH_FADE_START ?? 0.75;
             const LFE = CFG.LENGTH_FADE_END ?? 1.0;
+            const taper = CFG.LATE_TAPER ?? 0.05;
+            if (progress >= LFE - taper) {
+              const local = (progress - (LFE - taper)) / taper; // 0..1 in taper
+              // Ease-in to zero width
+              const ease = local * local;
+              streetKm = minStreetKm * (1 - ease);
+            } else {
+              streetKm = Math.max(streetKm, minStreetKm);
+            }
+            if (progress >= LFE) streetKm = 0;
+            // Length collapse by slicing each LineString toward nearest points
             const keepWeight = smoothstep(LFS, LFE, progress); // 0 -> 1 late
             const baseKeep = CFG.LENGTH_INFLUENCE_METERS ?? 300; // meters
             const keepHalfKm = ((MIN_RADIUS_METERS) + baseKeep * (1 - keepWeight)) / 1000; // half-window
@@ -257,7 +271,15 @@ const CONFIG = {
                   intervals = [[0, lineLenKm]]; // early phase keep whole line
                 }
                 intervals = mergeIntervals(intervals);
-                for (const [startKm, endKm] of intervals) {
+                // Within the taper phase, also shrink interval lengths toward zero
+                const taperFactor = progress >= (LFE - taper) ? (1 - Math.pow((progress - (LFE - taper)) / taper, 2)) : 1;
+                for (let [startKm, endKm] of intervals) {
+                  if (taperFactor < 1) {
+                    const mid = (startKm + endKm) / 2;
+                    const half = (endKm - startKm) / 2 * taperFactor;
+                    startKm = Math.max(0, mid - half);
+                    endKm = Math.min(lineLenKm, mid + half);
+                  }
                   const slice = turf.lineSliceAlong(s, startKm, endKm, { units: 'kilometers' });
                   if (!slice || slice.geometry.coordinates.length < 2) continue;
                   const sbuf = turf.buffer(slice, streetKm, { units: 'kilometers' });
@@ -265,12 +287,14 @@ const CONFIG = {
                 }
               }
             }
-            // Points keep constant size (no scaling)
+            // Points keep constant size (no scaling) but are hidden until near the end
             const minPointKm = MIN_RADIUS_METERS / 1000;
             const pointKm = minPointKm;
-            for (const p of points) {
-              const buf = turf.buffer(p, pointKm, { units: 'kilometers' });
-              if (buf) polygons.push(buf);
+            if (progress >= (CFG.POINT_REVEAL_START ?? 0.94)) {
+              for (const p of points) {
+                const buf = turf.buffer(p, pointKm, { units: 'kilometers' });
+                if (buf) polygons.push(buf);
+              }
             }
             return turf.featureCollection(polygons);
           }
