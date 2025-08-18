@@ -1,13 +1,30 @@
 ---
 import "../styles/global.css";
-import pointsRaw from "../../data/points.geojson?raw";
+import streetsRaw from "../../data/streets.geojson?raw";
 import borderRaw from "../../data/border.geojson?raw";
 
-const points = JSON.parse(pointsRaw);
+const streets = JSON.parse(streetsRaw);
 const border = JSON.parse(borderRaw);
 
 const title = "Karte";
 const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
+// Centralized, tweakable constants
+const CONFIG = {
+  DEFAULT_REVEAL_DURATION_MS: 2 * 60 * 60 * 1000, // 2 hours
+  MAX_RADIUS_METERS: 120, // starting street buffer radius
+  MIN_RADIUS_METERS: 6,   // final point buffer radius
+  BORDER_INSET_METERS: 2, // shrink border a touch to avoid edge bleed
+  LATE_SPLIT_THRESHOLD: 0.9, // force split late in time
+  STREET_FADE_START: 0.6,
+  STREET_FADE_END: 0.95,
+  STREET_BASE_MULT: 0.02,
+  STREET_PROGRESS_MULT: 0.6,
+  // Minimum street width (meters). Streets stop shrinking once they reach this.
+  STREET_MIN_WIDTH_METERS:  3,
+  LENGTH_FADE_START: 0.6,
+  LENGTH_FADE_END: 1.0,
+  LENGTH_INFLUENCE_METERS: 400
+};
 ---
 
 <html lang="en">
@@ -26,10 +43,12 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
       <div id="map" data-token={MAPBOX_TOKEN} class="w-full h-[100dvh]"></div>
     </main>
 
-    <script id="geojson-data" type="application/json" set:html={JSON.stringify(points)}></script>
+    <script id="streets-data" type="application/json" set:html={JSON.stringify(streets)}></script>
     <script id="border-data" type="application/json" set:html={JSON.stringify(border)}></script>
+    <script id="config" type="application/json" set:html={JSON.stringify(CONFIG)}></script>
     <script type="module">
       import * as turf from 'https://cdn.skypack.dev/@turf/turf';
+      import polygonClipping from 'https://cdn.skypack.dev/polygon-clipping';
       function init() {
         const container = document.getElementById('map');
         const token = container?.dataset?.token || '';
@@ -38,11 +57,13 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
           return;
         }
 
-        const jsonEl = document.getElementById('geojson-data');
+        const jsonEl = document.getElementById('streets-data');
         const borderEl = document.getElementById('border-data');
-        if (!jsonEl || !borderEl) return;
-        const geojson = JSON.parse(jsonEl.textContent || '{}');
+        const cfgEl = document.getElementById('config');
+        if (!jsonEl || !borderEl || !cfgEl) return;
+        const streetsJson = JSON.parse(jsonEl.textContent || '{}');
         const borderJson = JSON.parse(borderEl.textContent || '{}');
+        const CFG = JSON.parse(cfgEl.textContent || '{}');
 
         // @ts-ignore - mapboxgl is provided globally by the CDN script
         if (!window.mapboxgl) {
@@ -64,10 +85,7 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
         map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
         map.on('load', () => {
-          map.addSource('points', {
-            type: 'geojson',
-            data: geojson
-          });
+          // Data is a mix of LineString (streets) and Point (places)
 
           // Border/mask source (for visualization and clipping)
           map.addSource('border', {
@@ -79,7 +97,7 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
 
           // No precise point markers — keep the locations hidden
 
-          // Add a unioned buffer polygon layer that starts vague and refines over two hours
+          // Build dynamic hint from streets and points
           map.addSource('hint', {
             type: 'geojson',
             data: {
@@ -144,9 +162,9 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
             localStorage.removeItem(STORAGE_KEY);
           }
           const override = parseDuration(url.searchParams.get('dur'));
-          const REVEAL_DURATION_MS = override ?? (2 * 60 * 60 * 1000);
-          const MAX_RADIUS_METERS = 300; // start (~600 m)
-          const MIN_RADIUS_METERS = 10;  // end (~60 m)
+          const REVEAL_DURATION_MS = override ?? (CFG.DEFAULT_REVEAL_DURATION_MS ?? 2 * 60 * 60 * 1000);
+          const MAX_RADIUS_METERS = CFG.MAX_RADIUS_METERS ?? 120;
+          const MIN_RADIUS_METERS = CFG.MIN_RADIUS_METERS ?? 6;
 
           let startTs = Number(localStorage.getItem(STORAGE_KEY) || 0);
           if (!startTs) {
@@ -161,25 +179,98 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
             const progress = clamp(elapsed / REVEAL_DURATION_MS, 0, 1);
             // Ease-out to reveal slower at first, faster later
             const eased = 1 - Math.pow(1 - progress, 2);
+            // Two-phase reveal: start with street-only buffer, then split toward points
+            // We map eased [0,1] to a radius that shrinks to point-level near the end
             const radius = MAX_RADIUS_METERS - (MAX_RADIUS_METERS - MIN_RADIUS_METERS) * eased;
-            return Math.max(radius, 0);
+            return { radius: Math.max(radius, 0), progress };
           }
 
-          function buildBuffers(radiusMeters) {
-            if (!geojson?.features?.length || radiusMeters <= 0) {
+          function splitStreetsAndPoints(fc) {
+            const streets = [];
+            const points = [];
+            for (const f of (fc.features || [])) {
+              const t = f?.geometry?.type;
+              if (t === 'LineString') streets.push(f);
+              else if (t === 'Point') points.push(f);
+            }
+            return { streets, points };
+          }
+
+          function smoothstep(edge0, edge1, x) {
+            const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+            return t * t * (3 - 2 * t);
+          }
+
+          function buildBuffers(radiusMeters, progress) {
+            if (!streetsJson?.features?.length || radiusMeters <= 0) {
               return { type: 'FeatureCollection', features: [] };
             }
             const km = radiusMeters / 1000;
             const polygons = [];
-            for (const f of geojson.features) {
-              if (f?.geometry?.type === 'Point') {
-                const buf = turf.buffer(f, km, { units: 'kilometers' });
-                if (!buf) continue;
-                const geomType = buf.geometry?.type;
-                if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
-                  polygons.push(buf);
+            const { streets, points } = splitStreetsAndPoints(streetsJson);
+            // Shrink street influence to 0 near the end
+            const streetWeight = 1 - smoothstep(CFG.STREET_FADE_START ?? 0.6, CFG.STREET_FADE_END ?? 0.95, progress);
+            let streetKm = km * ((CFG.STREET_BASE_MULT ?? 0.9) + (CFG.STREET_PROGRESS_MULT ?? 0.6) * (1 - progress)) * streetWeight;
+            // Enforce a minimum street width so it stops shrinking visually
+            const minStreetKm = (CFG.STREET_MIN_WIDTH_METERS ?? (2 * MIN_RADIUS_METERS)) / 1000;
+            streetKm = Math.max(streetKm, minStreetKm);
+            // Length collapse by slicing each LineString toward nearest points
+            const LFS = CFG.LENGTH_FADE_START ?? 0.75;
+            const LFE = CFG.LENGTH_FADE_END ?? 1.0;
+            const keepWeight = smoothstep(LFS, LFE, progress); // 0 -> 1 late
+            const baseKeep = CFG.LENGTH_INFLUENCE_METERS ?? 300; // meters
+            const keepHalfKm = ((MIN_RADIUS_METERS) + baseKeep * (1 - keepWeight)) / 1000; // half-window
+
+            function mergeIntervals(ranges) {
+              if (!ranges.length) return [];
+              ranges.sort((a,b)=>a[0]-b[0]);
+              const merged=[ranges[0].slice()];
+              for (let i=1;i<ranges.length;i++){
+                const [s,e]=ranges[i];
+                const last=merged[merged.length-1];
+                if (s<=last[1]) last[1]=Math.max(last[1],e); else merged.push([s,e]);
+              }
+              return merged;
+            }
+
+            if (streetKm > 0) {
+              for (const s of streets) {
+                const lineLenKm = turf.length(s, { units: 'kilometers' });
+                // Gather along-line measures of nearby points
+                const measures = [];
+                for (const p of points) {
+                  const distKm = turf.pointToLineDistance(p, s, { units: 'kilometers' });
+                  if (distKm <= (streetKm + (MIN_RADIUS_METERS/1000))) {
+                    const snapped = turf.nearestPointOnLine(s, p, { units: 'kilometers' });
+                    const m = snapped?.properties?.location;
+                    if (typeof m === 'number' && m >= 0 && m <= lineLenKm) measures.push(m);
+                  }
+                }
+                let intervals = [];
+                if (measures.length && progress >= LFS) {
+                  for (const m of measures) {
+                    const start = Math.max(0, m - keepHalfKm);
+                    const end = Math.min(lineLenKm, m + keepHalfKm);
+                    intervals.push([start, end]);
+                  }
+                } else {
+                  intervals = [[0, lineLenKm]]; // early phase keep whole line
+                }
+                intervals = mergeIntervals(intervals);
+                for (const [startKm, endKm] of intervals) {
+                  const slice = turf.lineSliceAlong(s, startKm, endKm, { units: 'kilometers' });
+                  if (!slice || slice.geometry.coordinates.length < 2) continue;
+                  const sbuf = turf.buffer(slice, streetKm, { units: 'kilometers' });
+                  if (sbuf) polygons.push(sbuf);
                 }
               }
+            }
+            // Points keep constant size (no scaling)
+            const minPointKm = MIN_RADIUS_METERS / 1000;
+            const pointKm = minPointKm;
+            for (const p of points) {
+              const buf = turf.buffer(p, pointKm, { units: 'kilometers' });
+              if (buf) polygons.push(buf);
             }
             return turf.featureCollection(polygons);
           }
@@ -232,39 +323,51 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
           }
 
           const borderFeature = getBorderFeature();
+          const BORDER_INSET_METERS = CFG.BORDER_INSET_METERS ?? 2; // safety margin: shrink border slightly to avoid edge bleed
 
           function normalizePolygon(feature) {
             try {
-              const fixed = turf.buffer(feature, 0, { units: 'meters' });
+              const inset = (feature === borderFeature && BORDER_INSET_METERS > 0) ? -BORDER_INSET_METERS : 0;
+              const fixed = turf.buffer(feature, inset, { units: 'meters' });
               return fixed || feature;
             } catch (_e) {
               return feature;
             }
           }
 
-          function safeIntersect(a, b) {
-            try { return turf.intersect(a, b); } catch (_e) {}
-            try { return turf.intersect(b, a); } catch (_e2) {}
-            try { return turf.intersect(turf.buffer(a, 0.5, { units: 'meters' }), b); } catch (_e3) {}
-            try { return turf.intersect(a, turf.buffer(b, 0.5, { units: 'meters' })); } catch (_e4) {}
-            return null;
+          // Robust intersection using polygon-clipping
+          function toPC(feature) {
+            const g = feature.type === 'Feature' ? feature.geometry : feature;
+            if (!g) return [];
+            if (g.type === 'Polygon') return [g.coordinates];
+            if (g.type === 'MultiPolygon') return g.coordinates;
+            return [];
+          }
+
+          function pcToFC(mp) {
+            if (!mp || !mp.length) return { type: 'FeatureCollection', features: [] };
+            const features = [];
+            for (const poly of mp) {
+              if (poly && poly.length) {
+                features.push(turf.polygon(poly));
+              }
+            }
+            return { type: 'FeatureCollection', features };
           }
 
           function clipToBorder(buffersFc) {
             if (!borderFeature || !buffersFc?.features?.length) return buffersFc;
             try {
               const borderFixed = normalizePolygon(borderFeature);
+              const borderPC = toPC(borderFixed);
               const clippedPieces = [];
               for (const piece of buffersFc.features) {
                 const pieceFixed = normalizePolygon(piece);
-                const inter = safeIntersect(borderFixed, pieceFixed);
-                if (inter) {
-                  if (inter.type === 'FeatureCollection') {
-                    clippedPieces.push(...inter.features);
-                  } else {
-                    clippedPieces.push(inter);
-                  }
-                }
+                const piecePC = toPC(pieceFixed);
+                if (!piecePC.length) continue;
+                const out = polygonClipping.intersection(borderPC, piecePC);
+                const fc = pcToFC(out);
+                if (fc.features.length) clippedPieces.push(...fc.features);
               }
               return { type: 'FeatureCollection', features: clippedPieces };
             } catch (e) {
@@ -275,14 +378,15 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
 
           function updateHintFrame() {
             const now = Date.now();
-            const r = currentRadiusMeters(now);
-            // Build buffers only; skip clipping for debugging
-            const pieces = buildBuffers(r);
-            // Union overlapping circles so they morph into polygons, but keep
-            // multi-part results if unions fail for some pairs
-            const data = dissolveCollection(pieces);
+            const { radius, progress } = currentRadiusMeters(now);
+            const pieces = buildBuffers(radius, progress);
+            let unioned = dissolveCollection(pieces);
+            // Late phase forced split disabled: length collapse handles revealing points
+            const clipped = clipToBorder(unioned);
+            const data = clipped?.features?.length ? clipped : unioned;
             const src = map.getSource('hint');
             if (src) src.setData(data);
+            // Optional: reveal point markers at the very end if we add them later
             if (now - startTs < REVEAL_DURATION_MS) {
               requestAnimationFrame(updateHintFrame);
             }
@@ -295,10 +399,12 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
             // Fit to data bounds if any features exist
             // @ts-ignore
             const bounds = new mapboxgl.LngLatBounds();
-            if (geojson?.features?.length) {
-              for (const feature of geojson.features) {
-                if (feature?.geometry?.type === 'Point' && Array.isArray(feature.geometry.coordinates)) {
-                  bounds.extend(feature.geometry.coordinates);
+            if (streetsJson?.features?.length) {
+              for (const f of streetsJson.features) {
+                const t = f?.geometry?.type;
+                if (t === 'Point') bounds.extend(f.geometry.coordinates);
+                if (t === 'LineString') {
+                  for (const c of f.geometry.coordinates) bounds.extend(c);
                 }
               }
               if (!bounds.isEmpty()) {
