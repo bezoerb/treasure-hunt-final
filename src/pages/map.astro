@@ -10,13 +10,10 @@ const title = "Karte";
 const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
 // Centralized, tweakable constants
 const CONFIG = {
-  DEFAULT_REVEAL_DURATION_MS: 2 * 60 * 60 * 1000, // 2 hours
+  DEFAULT_REVEAL_DURATION_MS: 1.5 * 60 * 60 * 1000, // 1.5 hours
   MAX_RADIUS_METERS: 120, // starting street buffer radius
   MIN_RADIUS_METERS: 6, // final point buffer radius
   BORDER_INSET_METERS: 2, // shrink border a touch to avoid edge bleed
-  LATE_SPLIT_THRESHOLD: 0.9, // force split late in time
-  STREET_FADE_START: 0.6,
-  STREET_FADE_END: 0.95,
   STREET_BASE_MULT: 0.02,
   STREET_PROGRESS_MULT: 0.6,
   // Minimum street width (meters). Streets stop shrinking once they reach this.
@@ -175,24 +172,7 @@ const CONFIG = {
               "line-opacity": 0.7,
             },
           });
-          // (Disabled) per-polygon labels; we render a single legend instead
-          map.addLayer({
-            id: "hint-labels",
-            type: "symbol",
-            source: "hint",
-            layout: {
-              visibility: "none",
-              "text-field": ["to-string", ["get", "label"]],
-              "text-size": 12,
-              "text-allow-overlap": true,
-            },
-            paint: {
-              "text-color": "#111827",
-              "text-halo-color": "#ffffff",
-              "text-halo-width": 1.25,
-              "text-opacity": 0.0,
-            },
-          });
+
 
           // Draw border for context
           map.addLayer({
@@ -206,28 +186,7 @@ const CONFIG = {
             },
           });
 
-          // Street base lines colored by number of points
-          const streetsLineFC = {
-            type: "FeatureCollection",
-            features: (streetsJson.features || []).filter(
-              (f) => f?.geometry?.type === "LineString"
-            ),
-          };
-          map.addSource("streets-base", {
-            type: "geojson",
-            data: streetsLineFC,
-          });
-          map.addLayer({
-            id: "streets-line",
-            type: "line",
-            source: "streets-base",
-            layout: { visibility: "none" },
-            paint: {
-              "line-width": 3,
-              "line-color": "#9ca3af",
-              "line-opacity": 0.0,
-            },
-          });
+
 
           // Points pulse layer (hidden initially)
           const pointsFC = {
@@ -366,14 +325,6 @@ const CONFIG = {
               const baseKeep = CFG.LENGTH_INFLUENCE_METERS ?? 300; // meters
               keepHalfKm =
                 (MIN_RADIUS_METERS + baseKeep * (1 - lengthWeight)) / 1000;
-
-              console.log("debug", {
-                progress,
-                lengthProgress,
-                lengthWeight,
-                keepHalfKm,
-                baseKeep,
-              });
             } else if (progress >= CFG.LENGTH_PHASE_END) {
               const lengthProgress =
                 (CFG.LENGTH_PHASE_END - CFG.LENGTH_PHASE_START) /
@@ -492,24 +443,7 @@ const CONFIG = {
             return turf.featureCollection(polygons);
           }
 
-          function safeUnion(a, b) {
-            try {
-              return turf.union(a, b);
-            } catch (_e) {}
-            try {
-              return turf.union(b, a);
-            } catch (_e2) {}
-            try {
-              return turf.union(normalizePolygon(a), normalizePolygon(b));
-            } catch (_e3) {}
-            try {
-              return turf.union(turf.buffer(a, 0.5, { units: "meters" }), b);
-            } catch (_e4) {}
-            try {
-              return turf.union(a, turf.buffer(b, 0.5, { units: "meters" }));
-            } catch (_e5) {}
-            return null;
-          }
+  
 
           function dissolveGeometric(fc) {
             if (!fc?.features?.length)
