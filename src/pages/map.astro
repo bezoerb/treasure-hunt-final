@@ -12,7 +12,7 @@ const MAPBOX_TOKEN = import.meta.env.PUBLIC_MAPBOX_TOKEN;
 const CONFIG = {
   DEFAULT_REVEAL_DURATION_MS: 2 * 60 * 60 * 1000, // 2 hours
   MAX_RADIUS_METERS: 120, // starting street buffer radius
-  MIN_RADIUS_METERS: 6,   // final point buffer radius
+  MIN_RADIUS_METERS: 6, // final point buffer radius
   BORDER_INSET_METERS: 2, // shrink border a touch to avoid edge bleed
   LATE_SPLIT_THRESHOLD: 0.9, // force split late in time
   STREET_FADE_START: 0.6,
@@ -20,14 +20,22 @@ const CONFIG = {
   STREET_BASE_MULT: 0.02,
   STREET_PROGRESS_MULT: 0.6,
   // Minimum street width (meters). Streets stop shrinking once they reach this.
-  STREET_MIN_WIDTH_METERS:  7,
-  LENGTH_FADE_START: 0.2,
-  LENGTH_FADE_END: 1,
-  LENGTH_INFLUENCE_METERS: 500,
+  STREET_MIN_WIDTH_METERS: 7,
+
+  LENGTH_INFLUENCE_METERS: 200,
   // Duration of the final fade/taper (fraction of total reveal time)
-  LATE_TAPER: 0.06,
-  // Reveal points only near the end (fraction of total progress)
-  POINT_REVEAL_START: 0.94
+  LATE_TAPER: 0.005,
+
+  // Hide the bottom-left legend slightly before points appear
+  LEGEND_HIDE_LEAD: 0.001,
+  // Whether to hide streets completely at the end (true) or keep them visible (false)
+  HIDE_STREETS_AT_END: false,
+
+  // Phase 1: Width shrinking (0 to 0.33) - 1/3 of total time
+  // Phase 2: Length collapse (0.33 to 1.0) - 2/3 of total time
+  WIDTH_PHASE_END: 1 / 4,
+  LENGTH_PHASE_START: 1 / 4,
+  LENGTH_PHASE_END: 2 / 4,
 };
 ---
 
@@ -39,39 +47,77 @@ const CONFIG = {
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <title>{title}</title>
-    <link href="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.css" rel="stylesheet">
-    <script defer src="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.js"></script>
+    <link
+      href="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.css"
+      rel="stylesheet"
+    />
+    <script defer src="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.js"
+    ></script>
   </head>
   <body class="min-h-screen">
     <main class="min-h-screen">
       <div id="map" data-token={MAPBOX_TOKEN} class="w-full h-[100dvh]"></div>
     </main>
+    <div
+      id="legend"
+      style="position:fixed;left:12px;bottom:12px;z-index:60;background:rgba(255,255,255,0.9);padding:8px 10px;border-radius:8px;border:1px solid #e5e7eb;font:12px/1.2 system-ui,sans-serif;color:#374151;display:flex;gap:10px;align-items:center;"
+    >
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span
+          style="display:inline-block;width:12px;height:12px;background:#16a34a;border-radius:3px;border:1px solid #0f5132"
+        ></span><span>1 Punkt</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span
+          style="display:inline-block;width:12px;height:12px;background:#f59e0b;border-radius:3px;border:1px solid #7c4a03"
+        ></span><span>2 Punkte</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span
+          style="display:inline-block;width:12px;height:12px;background:#ef4444;border-radius:3px;border:1px solid #7f1d1d"
+        ></span><span>3+ Punkte</span>
+      </div>
+    </div>
 
-    <script id="streets-data" type="application/json" set:html={JSON.stringify(streets)}></script>
-    <script id="border-data" type="application/json" set:html={JSON.stringify(border)}></script>
-    <script id="config" type="application/json" set:html={JSON.stringify(CONFIG)}></script>
+    <script
+      id="streets-data"
+      type="application/json"
+      set:html={JSON.stringify(streets)}
+    />
+    <script
+      id="border-data"
+      type="application/json"
+      set:html={JSON.stringify(border)}
+    />
+    <script
+      id="config"
+      type="application/json"
+      set:html={JSON.stringify(CONFIG)}
+    />
     <script type="module">
-      import * as turf from 'https://cdn.skypack.dev/@turf/turf';
-      import polygonClipping from 'https://cdn.skypack.dev/polygon-clipping';
+      import * as turf from "https://cdn.skypack.dev/@turf/turf";
+      import polygonClipping from "https://cdn.skypack.dev/polygon-clipping";
       function init() {
-        const container = document.getElementById('map');
-        const token = container?.dataset?.token || '';
+        const container = document.getElementById("map");
+        const token = container?.dataset?.token || "";
         if (!token) {
-          console.error('PUBLIC_MAPBOX_TOKEN is missing. Set it in your environment.');
+          console.error(
+            "PUBLIC_MAPBOX_TOKEN is missing. Set it in your environment."
+          );
           return;
         }
 
-        const jsonEl = document.getElementById('streets-data');
-        const borderEl = document.getElementById('border-data');
-        const cfgEl = document.getElementById('config');
+        const jsonEl = document.getElementById("streets-data");
+        const borderEl = document.getElementById("border-data");
+        const cfgEl = document.getElementById("config");
         if (!jsonEl || !borderEl || !cfgEl) return;
-        const streetsJson = JSON.parse(jsonEl.textContent || '{}');
-        const borderJson = JSON.parse(borderEl.textContent || '{}');
-        const CFG = JSON.parse(cfgEl.textContent || '{}');
+        const streetsJson = JSON.parse(jsonEl.textContent || "{}");
+        const borderJson = JSON.parse(borderEl.textContent || "{}");
+        const CFG = JSON.parse(cfgEl.textContent || "{}");
 
         // @ts-ignore - mapboxgl is provided globally by the CDN script
         if (!window.mapboxgl) {
-          console.error('Mapbox GL JS failed to load');
+          console.error("Mapbox GL JS failed to load");
           return;
         }
 
@@ -79,22 +125,22 @@ const CONFIG = {
         mapboxgl.accessToken = token;
         // @ts-ignore
         const map = new mapboxgl.Map({
-          container: 'map',
-          style: 'mapbox://styles/mapbox/streets-v12',
+          container: "map",
+          style: "mapbox://styles/mapbox/streets-v12",
           center: [10.0, 51.0],
-          zoom: 4
+          zoom: 4,
         });
 
         // @ts-ignore
-        map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+        map.addControl(new mapboxgl.NavigationControl(), "top-right");
 
-        map.on('load', () => {
+        map.on("load", () => {
           // Data is a mix of LineString (streets) and Point (places)
 
           // Border/mask source (for visualization and clipping)
-          map.addSource('border', {
-            type: 'geojson',
-            data: borderJson
+          map.addSource("border", {
+            type: "geojson",
+            data: borderJson,
           });
 
           // Clip layer approach didn't work reliably, switching back to turf.mask for guaranteed clipping
@@ -102,71 +148,143 @@ const CONFIG = {
           // No precise point markers — keep the locations hidden
 
           // Build dynamic hint from streets and points
-          map.addSource('hint', {
-            type: 'geojson',
+          map.addSource("hint", {
+            type: "geojson",
             data: {
-              type: 'FeatureCollection',
-              features: []
-            }
+              type: "FeatureCollection",
+              features: [],
+            },
           });
 
           map.addLayer({
-            id: 'hint-fill',
-            type: 'fill',
-            source: 'hint',
+            id: "hint-fill",
+            type: "fill",
+            source: "hint",
             paint: {
-              'fill-color': '#ff5500',
-              'fill-opacity': 0.4
-            }
+              "fill-color": ["coalesce", ["get", "color"], "#ff5500"],
+              "fill-opacity": 0.4,
+            },
           });
           map.addLayer({
-            id: 'hint-outline',
-            type: 'line',
-            source: 'hint',
+            id: "hint-outline",
+            type: "line",
+            source: "hint",
             paint: {
-              'line-color': '#ff5500',
-              'line-width': 2,
-              'line-opacity': 0.7
-            }
+              "line-color": "#ff5500",
+              "line-width": 2,
+              "line-opacity": 0.7,
+            },
+          });
+          // (Disabled) per-polygon labels; we render a single legend instead
+          map.addLayer({
+            id: "hint-labels",
+            type: "symbol",
+            source: "hint",
+            layout: {
+              visibility: "none",
+              "text-field": ["to-string", ["get", "label"]],
+              "text-size": 12,
+              "text-allow-overlap": true,
+            },
+            paint: {
+              "text-color": "#111827",
+              "text-halo-color": "#ffffff",
+              "text-halo-width": 1.25,
+              "text-opacity": 0.0,
+            },
           });
 
           // Draw border for context
           map.addLayer({
-            id: 'border-outline',
-            type: 'line',
-            source: 'border',
+            id: "border-outline",
+            type: "line",
+            source: "border",
             paint: {
-              'line-color': '#4b5563',
-              'line-width': 2,
-              'line-opacity': 0
-            }
+              "line-color": "#4b5563",
+              "line-width": 2,
+              "line-opacity": 0,
+            },
+          });
+
+          // Street base lines colored by number of points
+          const streetsLineFC = {
+            type: "FeatureCollection",
+            features: (streetsJson.features || []).filter(
+              (f) => f?.geometry?.type === "LineString"
+            ),
+          };
+          map.addSource("streets-base", {
+            type: "geojson",
+            data: streetsLineFC,
+          });
+          map.addLayer({
+            id: "streets-line",
+            type: "line",
+            source: "streets-base",
+            layout: { visibility: "none" },
+            paint: {
+              "line-width": 3,
+              "line-color": "#9ca3af",
+              "line-opacity": 0.0,
+            },
+          });
+
+          // Points pulse layer (hidden initially)
+          const pointsFC = {
+            type: "FeatureCollection",
+            features: (streetsJson.features || []).filter(
+              (f) => f?.geometry?.type === "Point"
+            ),
+          };
+          map.addSource("reveal-points", { type: "geojson", data: pointsFC });
+          map.addLayer({
+            id: "points-pulse",
+            type: "circle",
+            source: "reveal-points",
+            layout: { visibility: "none" },
+            paint: {
+              "circle-radius": 3,
+              "circle-color": "#ff5500",
+              "circle-opacity": 0.9,
+              "circle-stroke-width": 1,
+              "circle-stroke-color": "#ffffff",
+              "circle-stroke-opacity": 1,
+            },
           });
 
           // Time-based: from a persistent start timestamp
-          const STORAGE_KEY = 'treasure-hunt:startTs';
+          const STORAGE_KEY = "treasure-hunt:startTs";
           // Default duration (2h). Override via URL: ?dur=60000 or ?dur=1m or 30s. Reset via ?reset=1
           function parseDuration(input) {
             if (!input) return null;
             const n = Number(input);
             if (!Number.isNaN(n)) return n; // milliseconds
-            const m = String(input).trim().match(/^(\d+)(ms|s|m|h)$/i);
+            const m = String(input)
+              .trim()
+              .match(/^(\d+)(ms|s|m|h)$/i);
             if (!m) return null;
             const value = Number(m[1]);
             const unit = m[2].toLowerCase();
             switch (unit) {
-              case 'ms': return value;
-              case 's': return value * 1000;
-              case 'm': return value * 60 * 1000;
-              case 'h': return value * 60 * 60 * 1000;
-              default: return null;
+              case "ms":
+                return value;
+              case "s":
+                return value * 1000;
+              case "m":
+                return value * 60 * 1000;
+              case "h":
+                return value * 60 * 60 * 1000;
+              default:
+                return null;
             }
           }
           const url = new URL(window.location.href);
-          if (url.searchParams.get('reset') === '1') {
+          if (url.searchParams.get("reset") === "1") {
             localStorage.removeItem(STORAGE_KEY);
           }
-          const override = parseDuration(url.searchParams.get('dur'));
-          const REVEAL_DURATION_MS = override ?? (CFG.DEFAULT_REVEAL_DURATION_MS ?? 2 * 60 * 60 * 1000);
+          const override = parseDuration(url.searchParams.get("dur"));
+          const REVEAL_DURATION_MS =
+            override ?? CFG.DEFAULT_REVEAL_DURATION_MS ?? 2 * 60 * 60 * 1000;
           const MAX_RADIUS_METERS = CFG.MAX_RADIUS_METERS ?? 120;
           const MIN_RADIUS_METERS = CFG.MIN_RADIUS_METERS ?? 6;
 
@@ -176,7 +294,9 @@ const CONFIG = {
             localStorage.setItem(STORAGE_KEY, String(startTs));
           }
 
-          function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+          function clamp(v, min, max) {
+            return Math.max(min, Math.min(max, v));
+          }
 
           function currentRadiusMeters(nowTs) {
             const elapsed = nowTs - startTs;
@@ -185,17 +305,19 @@ const CONFIG = {
             const eased = 1 - Math.pow(1 - progress, 2);
             // Two-phase reveal: start with street-only buffer, then split toward points
             // We map eased [0,1] to a radius that shrinks to point-level near the end
-            const radius = MAX_RADIUS_METERS - (MAX_RADIUS_METERS - MIN_RADIUS_METERS) * eased;
+            const radius =
+              MAX_RADIUS_METERS -
+              (MAX_RADIUS_METERS - MIN_RADIUS_METERS) * eased;
             return { radius: Math.max(radius, 0), progress };
           }
 
           function splitStreetsAndPoints(fc) {
             const streets = [];
             const points = [];
-            for (const f of (fc.features || [])) {
+            for (const f of fc.features || []) {
               const t = f?.geometry?.type;
-              if (t === 'LineString') streets.push(f);
-              else if (t === 'Point') points.push(f);
+              if (t === "LineString") streets.push(f);
+              else if (t === "Point") points.push(f);
             }
             return { streets, points };
           }
@@ -205,143 +327,209 @@ const CONFIG = {
             return t * t * (3 - 2 * t);
           }
 
-          function buildBuffers(radiusMeters, progress) {
+          function buildBuffers(radiusMeters, progress, currentTime, animationStartTime, animationDuration) {
             if (!streetsJson?.features?.length || radiusMeters <= 0) {
-              return { type: 'FeatureCollection', features: [] };
+              return { type: "FeatureCollection", features: [] };
             }
             const km = radiusMeters / 1000;
             const polygons = [];
             const { streets, points } = splitStreetsAndPoints(streetsJson);
-            // Shrink street influence to 0 near the end
-            const streetWeight = 1 - smoothstep(CFG.STREET_FADE_START ?? 0.6, CFG.STREET_FADE_END ?? 0.95, progress);
-            let streetKm = km * ((CFG.STREET_BASE_MULT ?? 0.9) + (CFG.STREET_PROGRESS_MULT ?? 0.6) * (1 - progress)) * streetWeight;
-            // Enforce a minimum street width so it stops shrinking visually
-            const minStreetKm = (CFG.STREET_MIN_WIDTH_METERS ?? (2 * MIN_RADIUS_METERS)) / 1000;
-            // Smoothly taper to zero near the end to avoid a pop
-            const LFS = CFG.LENGTH_FADE_START ?? 0.75;
-            const LFE = CFG.LENGTH_FADE_END ?? 1.0;
-            const taper = CFG.LATE_TAPER ?? 0.05;
-            if (progress >= LFE - taper) {
-              const local = (progress - (LFE - taper)) / taper; // 0..1 in taper
-              // Ease-in to zero width
-              const ease = local * local;
-              streetKm = minStreetKm * (1 - ease);
-            } else {
+
+            let streetKm = km;
+            const minStreetKm =
+              (CFG.STREET_MIN_WIDTH_METERS ?? 2 * MIN_RADIUS_METERS) / 1000;
+
+            if (progress <= CFG.WIDTH_PHASE_END) {
+              // Phase 1: Width shrinking only
+              const widthProgress = progress / CFG.WIDTH_PHASE_END; // 0..1 within width phase
+              streetKm =
+                km *
+                ((CFG.STREET_BASE_MULT ?? 0.9) +
+                  (CFG.STREET_PROGRESS_MULT ?? 0.6) * (1 - widthProgress));
               streetKm = Math.max(streetKm, minStreetKm);
+            } else {
+              // Phase 2: Width stays at minimum, only length collapses
+              streetKm = minStreetKm;
             }
-            if (progress >= LFE) streetKm = 0;
-            // Length collapse by slicing each LineString toward nearest points
-            const keepWeight = smoothstep(LFS, LFE, progress); // 0 -> 1 late
-            const baseKeep = CFG.LENGTH_INFLUENCE_METERS ?? 300; // meters
-            const keepHalfKm = ((MIN_RADIUS_METERS) + baseKeep * (1 - keepWeight)) / 1000; // half-window
+
+            // Length collapse only happens in phase 2 (0.33 to 1.0)
+            let keepHalfKm = (CFG.LENGTH_INFLUENCE_METERS ?? 300) / 1000; // Start with full length
+
+            if (
+              progress > CFG.LENGTH_PHASE_START &&
+              progress < CFG.LENGTH_PHASE_END
+            ) {
+              const lengthProgress =
+                (progress - CFG.LENGTH_PHASE_START) /
+                (CFG.LENGTH_PHASE_END - CFG.LENGTH_PHASE_START); // 0..1 within length phase
+              const lengthWeight = lengthProgress * 0.8; // Slower but visible collapse - use 80% of the potential shrinking
+              const baseKeep = CFG.LENGTH_INFLUENCE_METERS ?? 300; // meters
+              keepHalfKm =
+                (MIN_RADIUS_METERS + baseKeep * (1 - lengthWeight)) / 1000;
+
+              console.log("debug", {
+                progress,
+                lengthProgress,
+                lengthWeight,
+                keepHalfKm,
+                baseKeep,
+              });
+            } else if (progress >= CFG.LENGTH_PHASE_END) {
+              const lengthProgress =
+                (CFG.LENGTH_PHASE_END - CFG.LENGTH_PHASE_START) /
+                (CFG.LENGTH_PHASE_END - CFG.LENGTH_PHASE_START); // 0..1 within length phase
+              const lengthWeight = lengthProgress * 0.8; // Slower but visible collapse - use 80% of the potential shrinking
+              const baseKeep = CFG.LENGTH_INFLUENCE_METERS ?? 300; // meters
+              keepHalfKm =
+                (MIN_RADIUS_METERS + baseKeep * (1 - lengthWeight)) / 1000;
+            }
 
             function mergeIntervals(ranges) {
               if (!ranges.length) return [];
-              ranges.sort((a,b)=>a[0]-b[0]);
-              const merged=[ranges[0].slice()];
-              for (let i=1;i<ranges.length;i++){
-                const [s,e]=ranges[i];
-                const last=merged[merged.length-1];
-                if (s<=last[1]) last[1]=Math.max(last[1],e); else merged.push([s,e]);
+              ranges.sort((a, b) => a[0] - b[0]);
+              const merged = [ranges[0].slice()];
+              for (let i = 1; i < ranges.length; i++) {
+                const [s, e] = ranges[i];
+                const last = merged[merged.length - 1];
+                if (s <= last[1]) last[1] = Math.max(last[1], e);
+                else merged.push([s, e]);
               }
               return merged;
             }
 
             if (streetKm > 0) {
               for (const s of streets) {
-                const lineLenKm = turf.length(s, { units: 'kilometers' });
+                const lineLenKm = turf.length(s, { units: "kilometers" });
                 // Gather along-line measures of nearby points
                 const measures = [];
                 for (const p of points) {
-                  const distKm = turf.pointToLineDistance(p, s, { units: 'kilometers' });
-                  if (distKm <= (streetKm + (MIN_RADIUS_METERS/1000))) {
-                    const snapped = turf.nearestPointOnLine(s, p, { units: 'kilometers' });
+                  const distKm = turf.pointToLineDistance(p, s, {
+                    units: "kilometers",
+                  });
+                  if (distKm <= streetKm + MIN_RADIUS_METERS / 1000) {
+                    const snapped = turf.nearestPointOnLine(s, p, {
+                      units: "kilometers",
+                    });
                     const m = snapped?.properties?.location;
-                    if (typeof m === 'number' && m >= 0 && m <= lineLenKm) measures.push(m);
+                    if (typeof m === "number" && m >= 0 && m <= lineLenKm)
+                      measures.push(m);
                   }
                 }
                 let intervals = [];
-                if (measures.length && progress >= LFS) {
-                  for (const m of measures) {
-                    const start = Math.max(0, m - keepHalfKm);
-                    const end = Math.min(lineLenKm, m + keepHalfKm);
+                if (progress >= CFG.LENGTH_PHASE_START) {
+                  if (measures.length > 0) {
+                    // Streets with nearby points: shrink toward points
+                    for (const m of measures) {
+                      const start = Math.max(0, m - keepHalfKm);
+                      const end = Math.min(lineLenKm, m + keepHalfKm);
+                      intervals.push([start, end]);
+                    }
+                  } else {
+                    // Streets with no nearby points: shrink from both ends toward center
+                    const center = lineLenKm / 2;
+                    const start = Math.max(0, center - keepHalfKm);
+                    const end = Math.min(lineLenKm, center + keepHalfKm);
                     intervals.push([start, end]);
                   }
                 } else {
-                  intervals = [[0, lineLenKm]]; // early phase keep whole line
+                  intervals = [[0, lineLenKm]]; // width phase: keep whole line
                 }
                 intervals = mergeIntervals(intervals);
-                // Within the taper phase, also shrink interval lengths toward zero
-                const taperFactor = progress >= (LFE - taper) ? (1 - Math.pow((progress - (LFE - taper)) / taper, 2)) : 1;
+                // Within the taper phase, also shrink interval lengths toward zero (if enabled)
+                const taper = CFG.LATE_TAPER ?? 0.05;
+                const hideAtEnd = CFG.HIDE_STREETS_AT_END ?? false;
+                const taperFactor =
+                  hideAtEnd && progress >= 1.0 - taper
+                    ? 1 - Math.pow((progress - (1.0 - taper)) / taper, 2)
+                    : 1;
                 for (let [startKm, endKm] of intervals) {
                   if (taperFactor < 1) {
                     const mid = (startKm + endKm) / 2;
-                    const half = (endKm - startKm) / 2 * taperFactor;
+                    const half = ((endKm - startKm) / 2) * taperFactor;
                     startKm = Math.max(0, mid - half);
                     endKm = Math.min(lineLenKm, mid + half);
                   }
-                  const slice = turf.lineSliceAlong(s, startKm, endKm, { units: 'kilometers' });
+                  const slice = turf.lineSliceAlong(s, startKm, endKm, {
+                    units: "kilometers",
+                  });
                   if (!slice || slice.geometry.coordinates.length < 2) continue;
-                  const sbuf = turf.buffer(slice, streetKm, { units: 'kilometers' });
-                  if (sbuf) polygons.push(sbuf);
+                  // Keep a tiny minimum to prevent full disappearance due to numeric issues
+                  const safeKm = Math.max(streetKm, 0.0001);
+                  let sbuf = turf.buffer(slice, safeKm, {
+                    units: "kilometers",
+                  });
+                  if (sbuf) {
+                    if (!sbuf.properties) sbuf.properties = {};
+                    // Always tag with source street color; switching is handled later per-frame
+                    sbuf.properties.color = s.properties?.color || "#f97316";
+                    polygons.push(sbuf);
+                  }
                 }
               }
             }
             // Points keep constant size (no scaling) but are hidden until near the end
             const minPointKm = MIN_RADIUS_METERS / 1000;
             const pointKm = minPointKm;
-            if (progress >= (CFG.POINT_REVEAL_START ?? 0.94)) {
+            // Phase 4: Points fade in with fixed 5-second duration at the end
+            if (progress >= 0.95) {
+              // Calculate time since points started revealing
+              const pointRevealStart = 0.95; // Fixed threshold - points appear in final 5% of animation
+              const pointStartTime = animationStartTime + (pointRevealStart * animationDuration);
+              const timeSincePointStart = currentTime - pointStartTime;
+              const pointFadeDuration = 5000; // 5 seconds in milliseconds
+              const pointProgress = Math.min(1, Math.max(0, timeSincePointStart / pointFadeDuration));
+              const pointOpacity = smoothstep(0, 1, pointProgress); // Smooth fade-in curve
+              
               for (const p of points) {
-                const buf = turf.buffer(p, pointKm, { units: 'kilometers' });
-                if (buf) polygons.push(buf);
+                const buf = turf.buffer(p, pointKm, { units: "kilometers" });
+                if (buf) {
+                  if (!buf.properties) buf.properties = {};
+                  buf.properties.pointOpacity = pointOpacity; // Store opacity for map styling
+                  polygons.push(buf);
+                }
               }
             }
             return turf.featureCollection(polygons);
           }
 
           function safeUnion(a, b) {
-            try { return turf.union(a, b); } catch (_e) {}
-            try { return turf.union(b, a); } catch (_e2) {}
-            try { return turf.union(normalizePolygon(a), normalizePolygon(b)); } catch (_e3) {}
-            try { return turf.union(turf.buffer(a, 0.5, { units: 'meters' }), b); } catch (_e4) {}
-            try { return turf.union(a, turf.buffer(b, 0.5, { units: 'meters' })); } catch (_e5) {}
+            try {
+              return turf.union(a, b);
+            } catch (_e) {}
+            try {
+              return turf.union(b, a);
+            } catch (_e2) {}
+            try {
+              return turf.union(normalizePolygon(a), normalizePolygon(b));
+            } catch (_e3) {}
+            try {
+              return turf.union(turf.buffer(a, 0.5, { units: "meters" }), b);
+            } catch (_e4) {}
+            try {
+              return turf.union(a, turf.buffer(b, 0.5, { units: "meters" }));
+            } catch (_e5) {}
             return null;
           }
 
-          function dissolveCollection(fc) {
-            if (!fc?.features?.length) return { type: 'FeatureCollection', features: [] };
-            // First try turf.dissolve directly
+          function dissolveGeometric(fc) {
+            if (!fc?.features?.length)
+              return { type: "FeatureCollection", features: [] };
+            // Simple geometric dissolve - merge ALL overlapping pieces regardless of properties
             try {
-              const dissolved = turf.dissolve(fc);
-              if (dissolved?.features?.length) return dissolved;
-            } catch (_ignored) {}
-
-            // Fallback: iterative union merge
-            const pool = fc.features.map(f => normalizePolygon(f));
-            const result = [];
-            while (pool.length) {
-              let current = pool.pop();
-              let mergedThisRound = false;
-              for (let i = 0; i < result.length; i++) {
-                const u = safeUnion(result[i], current);
-                if (u) {
-                  result[i] = normalizePolygon(u);
-                  mergedThisRound = true;
-                  break;
-                }
-              }
-              if (!mergedThisRound) result.push(current);
+              return turf.dissolve(fc);
+            } catch (e) {
+              // Fallback: return original features if dissolve fails
+              return fc;
             }
-            return { type: 'FeatureCollection', features: result };
           }
 
           // Get border feature for clipping
           function getBorderFeature() {
             if (!borderJson?.features?.length) return null;
             // Find the first polygon/multipolygon
-            const borderFeature = borderJson.features.find(f => {
+            const borderFeature = borderJson.features.find((f) => {
               const t = f?.geometry?.type;
-              return t === 'Polygon' || t === 'MultiPolygon';
+              return t === "Polygon" || t === "MultiPolygon";
             });
             return borderFeature || null;
           }
@@ -351,8 +539,11 @@ const CONFIG = {
 
           function normalizePolygon(feature) {
             try {
-              const inset = (feature === borderFeature && BORDER_INSET_METERS > 0) ? -BORDER_INSET_METERS : 0;
-              const fixed = turf.buffer(feature, inset, { units: 'meters' });
+              const inset =
+                feature === borderFeature && BORDER_INSET_METERS > 0
+                  ? -BORDER_INSET_METERS
+                  : 0;
+              const fixed = turf.buffer(feature, inset, { units: "meters" });
               return fixed || feature;
             } catch (_e) {
               return feature;
@@ -361,26 +552,28 @@ const CONFIG = {
 
           // Robust intersection using polygon-clipping
           function toPC(feature) {
-            const g = feature.type === 'Feature' ? feature.geometry : feature;
+            const g = feature.type === "Feature" ? feature.geometry : feature;
             if (!g) return [];
-            if (g.type === 'Polygon') return [g.coordinates];
-            if (g.type === 'MultiPolygon') return g.coordinates;
+            if (g.type === "Polygon") return [g.coordinates];
+            if (g.type === "MultiPolygon") return g.coordinates;
             return [];
           }
 
           function pcToFC(mp) {
-            if (!mp || !mp.length) return { type: 'FeatureCollection', features: [] };
+            if (!mp || !mp.length)
+              return { type: "FeatureCollection", features: [] };
             const features = [];
             for (const poly of mp) {
               if (poly && poly.length) {
                 features.push(turf.polygon(poly));
               }
             }
-            return { type: 'FeatureCollection', features };
+            return { type: "FeatureCollection", features };
           }
 
           function clipToBorder(buffersFc) {
-            if (!borderFeature || !buffersFc?.features?.length) return buffersFc;
+            if (!borderFeature || !buffersFc?.features?.length)
+              return buffersFc;
             try {
               const borderFixed = normalizePolygon(borderFeature);
               const borderPC = toPC(borderFixed);
@@ -391,27 +584,220 @@ const CONFIG = {
                 if (!piecePC.length) continue;
                 const out = polygonClipping.intersection(borderPC, piecePC);
                 const fc = pcToFC(out);
-                if (fc.features.length) clippedPieces.push(...fc.features);
+                if (fc.features.length) {
+                  for (const f of fc.features) {
+                    if (!f.properties) f.properties = {};
+                    if (pieceFixed.properties?.color)
+                      f.properties.color = pieceFixed.properties.color;
+                  }
+                  clippedPieces.push(...fc.features);
+                }
               }
-              return { type: 'FeatureCollection', features: clippedPieces };
+              return { type: "FeatureCollection", features: clippedPieces };
             } catch (e) {
-              console.warn('Clipping failed:', e);
+              console.warn("Clipping failed:", e);
               return buffersFc;
             }
+          }
+
+          // Color + label decoration helpers
+          // Using colors from GeoJSON; palette/cache not required
+          const totalPoints = (streetsJson.features || []).filter(
+            (f) => f?.geometry?.type === "Point"
+          ).length;
+          function idsKeyForPolygon(poly) {
+            try {
+              const pts = {
+                type: "FeatureCollection",
+                features: (streetsJson.features || []).filter(
+                  (f) => f?.geometry?.type === "Point"
+                ),
+              };
+              const inside =
+                turf.pointsWithinPolygon(pts, poly)?.features || [];
+              const ids = inside
+                .map((p) =>
+                  String(
+                    p.id ??
+                      `${p.geometry.coordinates[0]},${p.geometry.coordinates[1]}`
+                  )
+                )
+                .sort();
+              return ids.join("|");
+            } catch (_) {
+              return "";
+            }
+          }
+          function decorateWithColorAndLabel(fc, hasSplit) {
+            if (!fc?.features?.length) return fc;
+            if (fc.features.length === 1 || !hasSplit) {
+              // Force ALL features to orange when not split
+              for (const f of fc.features) {
+                if (!f.properties) f.properties = {};
+                f.properties.color = "#f97316";
+              }
+              // Set total label on first feature only
+              fc.features[0].properties.label = String(totalPoints);
+              return fc;
+            }
+            for (const f of fc.features) {
+              if (!f.properties) f.properties = {};
+              const key = idsKeyForPolygon(f);
+              const inside = key ? key.split("|").filter(Boolean) : [];
+              f.properties.label = String(inside.length);
+              // Do not override color; it was propagated from source slices
+              if (!f.properties.color) f.properties.color = "#f97316";
+            }
+            return fc;
           }
 
           function updateHintFrame() {
             const now = Date.now();
             const { radius, progress } = currentRadiusMeters(now);
-            const pieces = buildBuffers(radius, progress);
-            let unioned = dissolveCollection(pieces);
+            const pieces = buildBuffers(radius, progress, now, startTs, REVEAL_DURATION_MS);
+            // Split detection: geometric dissolve to merge all overlapping pieces
+            let hasSplit = false;
+            if (pieces?.features?.length > 1) {
+              try {
+                const dissolved = dissolveGeometric(pieces);
+                hasSplit = (dissolved?.features?.length || 0) > 1;
+              } catch (e) {
+                hasSplit = false;
+              }
+            }
+
+            // Always use geometric dissolve, then assign colors based on original streets
+            let unioned = dissolveGeometric(pieces);
+
             // Late phase forced split disabled: length collapse handles revealing points
             const clipped = clipToBorder(unioned);
-            const data = clipped?.features?.length ? clipped : unioned;
-            const src = map.getSource('hint');
+            let data = clipped?.features?.length ? clipped : unioned;
+            // Assign colors based on original street LineStrings
+            const { streets } = splitStreetsAndPoints(streetsJson);
+
+            if (!hasSplit) {
+              // Not split - everything orange
+              data = decorateWithColorAndLabel(data, hasSplit);
+            } else {
+              // Split detected - assign colors based on best matching original street
+              if (data.features.length > 1) {
+                // Sort features by area (largest first)
+                data.features.sort((a, b) => turf.area(b) - turf.area(a));
+
+                for (let i = 0; i < data.features.length; i++) {
+                  const feature = data.features[i];
+                  if (!feature.properties) feature.properties = {};
+
+                  if (i === 0) {
+                    // Largest piece stays orange (main connected mass)
+                    feature.properties.color = "#f97316";
+                  } else {
+                    // Find original street - use very lenient checks
+                    let bestColor = "#ff0000"; // Red as fallback
+
+                    for (const street of streets) {
+                      if (street.properties?.color) {
+                        try {
+                          // Very simple check: is any point of the street line inside the polygon?
+                          const coords = street.geometry.coordinates;
+                          let found = false;
+
+                          // Check every 3rd coordinate to speed up and still be thorough
+                          for (let j = 0; j < coords.length; j += 3) {
+                            const point = turf.point(coords[j]);
+                            if (turf.booleanPointInPolygon(point, feature)) {
+                              bestColor = street.properties.color;
+                              found = true;
+                              break;
+                            }
+                          }
+
+                          if (found) break; // Use first found street
+                        } catch (e) {
+                          // Skip if check fails
+                        }
+                      }
+                    }
+                    feature.properties.color = bestColor;
+                  }
+                }
+              }
+
+              // Set labels for all features
+              for (const f of data.features) {
+                if (!f.properties) f.properties = {};
+                const key = idsKeyForPolygon(f);
+                const inside = key ? key.split("|").filter(Boolean) : [];
+                f.properties.label = String(inside.length);
+              }
+            }
+            // Update lower-left legend with the current segments/counts
+            try {
+              const legend = document.getElementById("legend");
+              if (legend && data?.features) {
+                const lead = CFG.LEGEND_HIDE_LEAD ?? 0.02;
+                const revealStart = CFG.POINT_REVEAL_START ?? 0.94;
+                const hideAt = Math.max(0, revealStart - lead);
+                if (progress >= hideAt) {
+                  legend.style.display = "none";
+                } else {
+                  legend.style.display = "flex";
+                  if (data.features.length === 1 || !hasSplit) {
+                    const f = data.features[0];
+                    const count = Number(f.properties?.label || 0);
+                    const color = String(f.properties?.color || "#f97316");
+                    legend.innerHTML = `<div style=\"display:flex;align-items:center;gap:8px;\"><span style=\"display:inline-block;width:12px;height:12px;background:${color};border-radius:3px;border:1px solid rgba(0,0,0,.2)\"></span><span>${count} Punkte</span></div>`;
+                  } else {
+                    const items = data.features
+                      .map((f) => {
+                        const color = String(f.properties?.color || "#f97316");
+                        const count = Number(f.properties?.label || 0);
+                        return `<div style=\"display:flex;align-items:center;gap:8px;\"><span style=\"display:inline-block;width:12px;height:12px;background:${color};border-radius:3px;border:1px solid rgba(0,0,0,.2)\"></span><span>${count}</span></div>`;
+                      })
+                      .join("");
+                    legend.innerHTML = `<div style=\"display:flex;gap:10px;align-items:center;flex-wrap:wrap;\">${items}</div>`;
+                  }
+                }
+              }
+            } catch (_) {}
+            const src = map.getSource("hint");
             if (src) src.setData(data);
-            // Optional: reveal point markers at the very end if we add them later
-            if (now - startTs < REVEAL_DURATION_MS) {
+            // Phase 4: Animate pulsating points at the end
+            const pointRevealStart = 0.95; // Fixed threshold - points appear in final 5% of animation
+            const showPulse = progress >= pointRevealStart;
+            try {
+              map.setLayoutProperty(
+                "points-pulse",
+                "visibility",
+                showPulse ? "visible" : "none"
+              );
+            } catch (_) {}
+            if (showPulse) {
+              // Use same 5-second timing as point fade
+              const pointStartTime = startTs + (pointRevealStart * REVEAL_DURATION_MS);
+              const timeSincePointStart = now - pointStartTime;
+              const pointFadeDuration = 5000; // 5 seconds in milliseconds
+              const pointProgress = Math.min(1, Math.max(0, timeSincePointStart / pointFadeDuration));
+              const t = (now % 1000) / 1000; // 1s cycle
+              const osc = 0.5 + 0.5 * Math.sin(2 * Math.PI * t);
+              const base = MIN_RADIUS_METERS;
+              const extra = 2 * (0.25 + 0.75 * pointProgress); // grows as points fade in
+              const r = base + osc * extra;
+              const baseOpacity = smoothstep(0, 1, pointProgress); // Fade in with points
+              try {
+                map.setPaintProperty("points-pulse", "circle-radius", r);
+              } catch (_) {}
+              try {
+                map.setPaintProperty(
+                  "points-pulse",
+                  "circle-opacity",
+                  baseOpacity * (0.7 + 0.3 * osc)
+                );
+              } catch (_) {}
+            }
+            // Continue animation for point fade-in phase (progress up to 1.5)
+            const totalDuration = REVEAL_DURATION_MS * 1.5; // Extend duration for point fade
+            if (now - startTs < totalDuration) {
               requestAnimationFrame(updateHintFrame);
             }
           }
@@ -426,8 +812,8 @@ const CONFIG = {
             if (streetsJson?.features?.length) {
               for (const f of streetsJson.features) {
                 const t = f?.geometry?.type;
-                if (t === 'Point') bounds.extend(f.geometry.coordinates);
-                if (t === 'LineString') {
+                if (t === "Point") bounds.extend(f.geometry.coordinates);
+                if (t === "LineString") {
                   for (const c of f.geometry.coordinates) bounds.extend(c);
                 }
               }
@@ -436,17 +822,16 @@ const CONFIG = {
               }
             }
           } catch (e) {
-            console.warn('Could not fit bounds:', e);
+            console.warn("Could not fit bounds:", e);
           }
         });
       }
 
-      if (document.readyState === 'complete') {
+      if (document.readyState === "complete") {
         init();
       } else {
-        window.addEventListener('load', init);
+        window.addEventListener("load", init);
       }
     </script>
   </body>
 </html>
-

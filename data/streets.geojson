@@ -18,7 +18,8 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 1
+        "points": 1,
+        "color": "#0000ff"
       },
       "geometry": {
         "coordinates": [
@@ -102,7 +103,8 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 4
+        "points": 4,
+        "color": "#00ff00"
       },
       "geometry": {
         "coordinates": [
@@ -123,8 +125,20 @@
             53.600273
           ],
           [
-            9.476206,
-            53.600924
+            9.476262,
+            53.600655
+          ],
+          [
+            9.476218,
+            53.600873
+          ],
+          [
+            9.476192,
+            53.600952
+          ],
+          [
+            9.476166,
+            53.601031
           ]
         ],
         "type": "LineString"
@@ -194,7 +208,8 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 1
+        "points": 1,
+        "color": "#008080"
       },
       "geometry": {
         "coordinates": [
@@ -233,7 +248,8 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 2
+        "points": 2,
+        "color": "#0000ff"
       },
       "geometry": {
         "coordinates": [
@@ -335,7 +351,8 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 1
+        "points": 1,
+        "color": "#ff1493"
       },
       "geometry": {
         "coordinates": [
@@ -399,7 +416,8 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 2
+        "points": 2,
+        "color": "#008080"
       },
       "geometry": {
         "coordinates": [
@@ -443,7 +461,8 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 1
+        "points": 1,
+        "color": "#ffa500"
       },
       "geometry": {
         "coordinates": [
@@ -467,7 +486,8 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 2
+        "points": 2,
+        "color": "#ffa500"
       },
       "geometry": {
         "coordinates": [
@@ -606,17 +626,18 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 1
+        "points": 1,
+        "color": "#0000ff"
       },
       "geometry": {
         "coordinates": [
           [
-            9.476979,
-            53.600702
+            9.476911,
+            53.60073
           ],
           [
-            9.477574,
-            53.600502
+            9.477557,
+            53.600507
           ]
         ],
         "type": "LineString"
@@ -641,7 +662,8 @@
     {
       "type": "Feature",
       "properties": {
-        "points": 3
+        "points": 3,
+        "color": "#ffa500"
       },
       "geometry": {
         "coordinates": [
